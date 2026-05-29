@@ -27,7 +27,7 @@ const RETRO_COLORS = ['#ff0000', '#00ff00', '#00ffff', '#ffff00', '#ff00ff', '#f
 
 // Serves the HTML game file directly when navigating to your Render URL root ('/')
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'ghost_of_goldstein.html'));
+    res.sendFile(path.join(__dirname, 'haunted_race.html'));
 });
 
 /**
