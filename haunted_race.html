@@ -483,10 +483,20 @@
       return {x:-dy/len, y:dx/len};
     });
 
+    // 👇 CHANGED: Spaced out the ghosts evenly across the spline loops to prevent tight clustering
     const ghosts = [];
-    for (let i=0; i<10 + Math.floor(rng()*4); i++) {
-      const idx = Math.floor(rng()*CL);
-      ghosts.push({ idx: idx, wobble: rng()*Math.PI*2, speed: 1.2+rng()*1.5, radiusOffset: Math.floor((rng() - 0.5) * 35) });
+    const ghostCount = 10 + Math.floor(rng()*4);
+    for (let i=0; i<ghostCount; i++) {
+      const baseIdx = Math.floor((i / ghostCount) * CL);
+      const jitter = Math.floor((rng() - 0.5) * (CL / ghostCount) * 0.4);
+      const finalIdx = (baseIdx + jitter + CL) % CL;
+
+      ghosts.push({
+        idx: finalIdx,
+        wobble: rng()*Math.PI*2,
+        speed: 1.2+rng()*1.5,
+        radiusOffset: Math.floor((rng() - 0.5) * 35)
+      });
     }
     return { curve: curve, normals: normals, CL: CL, ghosts: ghosts, seed: seed };
   }
@@ -575,7 +585,8 @@
       localPlayer.offTrackTimer=0;
     }
 
-    localPlayer.sanity = Math.max(localPlayer.sanity - 0.035 * dt, 0.0);
+    // 👇 CHANGED: Normalized glitch cooldown set to 0.12 for a balanced arcade recovery speed
+    localPlayer.sanity = Math.max(localPlayer.sanity - 0.12 * dt, 0.0);
 
     localPlayer.prevProgress=localPlayer.progress;
     localPlayer.progress=trackProgress(localPlayer.x,localPlayer.y,track);
@@ -726,8 +737,6 @@
     ctx.fillStyle = '#000000';
     ctx.fillRect(-bw/2, -bh/2 - 1, 2, bh + 2);
 
-    // Removed the yellow headlight block that used to project from here
-
     ctx.rotate(-rotationRad);
     ctx.font=Math.floor(8*camScale) + "px 'Press Start 2P'";
     ctx.fillStyle=r.color || '#fff';
@@ -812,7 +821,8 @@
       const dx=localPlayer.x-gx, dy=localPlayer.y-gy;
       const distSq = dx*dx+dy*dy;
 
-      if(distSq < 720) {
+      // 👇 CHANGED: Tightened the hitbox bounds from 720 down to 400 square pixels to make physics accurate
+      if(distSq < 400) {
         if (!localPlayer.finished && localPlayer.ghostedTimer <= 0) {
           localPlayer.sanity = Math.min(localPlayer.sanity + 0.34, 1.0);
 
