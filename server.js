@@ -1,167 +1,158 @@
-import express from 'express';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
+const express = require('express');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
+const path = require('path'); // Core module added to handle file directories
 
 const app = express();
 const httpServer = createServer(app);
 
+// 👇 RENDER REQUIREMENT: Dynamically hooks into the port assigned by Render's runtime environment
+const PORT = process.env.PORT || 3000;
+
+// Permissive Cross-Origin Resource Sharing setup for WebSocket client handshakes
 const io = new Server(httpServer, {
-    cors: { origin: "*", methods: ["GET", "POST"] }
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
 });
 
-const GOLDSTEIN_COLORS = ['#ff3333', '#783cb0', '#208c46', '#c2a454', '#bd246e', '#1c71a1'];
-let roomMapStates = {};
+const activeRooms = {};
+const RETRO_COLORS = ['#ff0000', '#00ff00', '#00ffff', '#ffff00', '#ff00ff', '#ffffff'];
 
-function computeStandings(roomKey) {
-    if (!roomMapStates[roomKey]) return [];
-    return Object.values(roomMapStates[roomKey].players).sort((a, b) => {
-        const lapsA = a.lapsComplete || 0;
-        const lapsB = b.lapsComplete || 0;
-        if (lapsB !== lapsA) return lapsB - lapsA;
-        const progA = a.progress || 0;
-        const progB = b.progress || 0;
-        return progB - progA;
-    });
-}
+// 👇 THE CRITICAL ADDITION: This interceptor answers incoming web browser traffic and serves the game file
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'ghost_of_goldstein.html'));
+});
 
+/**
+ * Socket.io Multi-Client Network Architecture
+ */
 io.on('connection', (socket) => {
-    let activeRoom = null;
+    let joinedRoomKey = null;
 
     socket.on('create-room', (data) => {
-        const roomKey = data.roomKey;
-        activeRoom = roomKey;
-        socket.join(roomKey);
+        const { roomKey, username } = data;
+        joinedRoomKey = roomKey;
 
-        roomMapStates[roomKey] = {
-            seed: Math.floor(Math.random() * 888888),
-            players: {},
-            isMatchActive: false
-        };
-
-        roomMapStates[roomKey].players[socket.id] = {
+        const newPlayer = {
             id: socket.id,
-            username: data.username,
-            color: GOLDSTEIN_COLORS[0],
-            isHost: true,
-            lapsComplete: 0,
-            progress: 0,
-            sanity: 0.0
+            username: username || 'HOST',
+            color: RETRO_COLORS[0],
+            isHost: true
         };
 
-        sendLobbyUpdate(roomKey);
+        activeRooms[roomKey] = {
+            roomKey,
+            players: [newPlayer],
+            seed: Math.floor(Math.random() * 999999),
+            raceStarted: false
+        };
+
+        socket.join(roomKey);
+        io.to(roomKey).emit('lobby-update', { players: activeRooms[roomKey].players });
     });
 
     socket.on('join-room', (data) => {
-        const roomKey = data.roomKey;
-        activeRoom = roomKey;
-        socket.join(roomKey);
+        const { roomKey, username } = data;
+        const room = activeRooms[roomKey];
 
-        if (!roomMapStates[roomKey]) {
-            roomMapStates[roomKey] = {
-                seed: Math.floor(Math.random() * 888888),
-                players: {},
-                isMatchActive: false
-            };
+        if (!room) {
+            socket.emit('error-msg', 'SIGIL ID INVALID OR EXPIRED.');
+            return;
+        }
+        if (room.raceStarted) {
+            socket.emit('error-msg', 'ROM INJECTED ALREADY. RUNNING CORE.');
+            return;
         }
 
-        const currentCount = Object.keys(roomMapStates[roomKey].players).length;
-        const assignedColor = GOLDSTEIN_COLORS[currentCount % GOLDSTEIN_COLORS.length];
+        joinedRoomKey = roomKey;
+        const assignedColor = RETRO_COLORS[room.players.length % RETRO_COLORS.length];
 
-        roomMapStates[roomKey].players[socket.id] = {
+        const newPlayer = {
             id: socket.id,
-            username: data.username,
+            username: username || `SOUL_${room.players.length}`,
             color: assignedColor,
-            isHost: currentCount === 0,
-            lapsComplete: 0,
-            progress: 0,
-            sanity: 0.0
+            isHost: false
         };
 
-        sendLobbyUpdate(roomKey);
+        room.players.push(newPlayer);
+        socket.join(roomKey);
+
+        io.to(roomKey).emit('lobby-update', { players: room.players });
     });
 
     socket.on('launch-match', (roomKey) => {
-        if (roomMapStates[roomKey]) {
-            roomMapStates[roomKey].isMatchActive = true;
-            Object.keys(roomMapStates[roomKey].players).forEach(id => {
-                roomMapStates[roomKey].players[id].lapsComplete = 0;
-                roomMapStates[roomKey].players[id].progress = 0;
-                roomMapStates[roomKey].players[id].sanity = 0.0;
-            });
-            io.to(roomKey).emit('init-race-start', { seed: roomMapStates[roomKey].seed });
-        }
-    });
+        const room = activeRooms[roomKey];
+        if (!room) return;
 
-    socket.on('host-abort-race', (roomKey) => {
-        if (roomMapStates[roomKey]) {
-            roomMapStates[roomKey].isMatchActive = false;
-            const finalStandings = computeStandings(roomKey);
-            io.to(roomKey).emit('race-terminated-early', finalStandings);
-        }
-    });
-
-    socket.on('player-finished-race', (roomKey) => {
-        if (roomMapStates[roomKey]) {
-            roomMapStates[roomKey].isMatchActive = false;
-            const finalStandings = computeStandings(roomKey);
-            io.to(roomKey).emit('race-terminated-early', finalStandings);
+        const hostPlayer = room.players.find(p => p.id === socket.id);
+        if (hostPlayer && hostPlayer.isHost) {
+            room.raceStarted = true;
+            io.to(roomKey).emit('init-race-start', { seed: room.seed });
         }
     });
 
     socket.on('player-move', (movementData) => {
-        if (!activeRoom || !roomMapStates[activeRoom]) return;
+        if (!joinedRoomKey || !activeRooms[joinedRoomKey]) return;
 
-        if (roomMapStates[activeRoom].players[socket.id]) {
-            roomMapStates[activeRoom].players[socket.id].position = movementData.position;
-            roomMapStates[activeRoom].players[socket.id].rotation = movementData.rotation;
-            roomMapStates[activeRoom].players[socket.id].lap = movementData.lap;
-            roomMapStates[activeRoom].players[socket.id].progress = movementData.progress;
-            roomMapStates[activeRoom].players[socket.id].lapsComplete = movementData.lapsComplete;
-            roomMapStates[activeRoom].players[socket.id].username = movementData.username;
-            roomMapStates[activeRoom].players[socket.id].color = movementData.color;
-            roomMapStates[activeRoom].players[socket.id].sanity = movementData.sanity;
+        const room = activeRooms[joinedRoomKey];
+        const internalPlayer = room.players.find(p => p.id === socket.id);
+
+        if (internalPlayer) {
+            Object.assign(internalPlayer, movementData);
+            socket.to(joinedRoomKey).emit('player-updated', {
+                id: socket.id,
+                ...movementData
+            });
         }
-
-        socket.to(activeRoom).emit('player-updated', roomMapStates[activeRoom].players[socket.id]);
     });
 
-    function sendLobbyUpdate(roomKey) {
-        if (roomMapStates[roomKey]) {
-            const playerList = Object.values(roomMapStates[roomKey].players);
-            io.to(roomKey).emit('lobby-update', { players: playerList });
+    socket.on('player-finished-race', (roomKey) => {
+        const room = activeRooms[roomKey];
+        if (!room) return;
+
+        const standings = [...room.players].sort((a, b) => {
+            if ((b.lapsComplete || 0) !== (a.lapsComplete || 0)) {
+                return (b.lapsComplete || 0) - (a.lapsComplete || 0);
+            }
+            return (b.progress || 0) - (a.progress || 0);
+        });
+
+        io.to(roomKey).emit('race-terminated-early', standings);
+    });
+
+    socket.on('host-abort-race', (roomKey) => {
+        const room = activeRooms[roomKey];
+        if (room) {
+            const host = room.players.find(p => p.id === socket.id);
+            if (host && host.isHost) {
+                io.to(roomKey).emit('race-terminated-early', room.players);
+            }
         }
-    }
+    });
 
     socket.on('disconnect', () => {
-        if (activeRoom && roomMapStates[activeRoom]) {
-            const wasHost = roomMapStates[activeRoom].players[socket.id]?.isHost;
-            delete roomMapStates[activeRoom].players[socket.id];
+        if (joinedRoomKey && activeRooms[joinedRoomKey]) {
+            const room = activeRooms[joinedRoomKey];
+            room.players = room.players.filter(p => p.id !== socket.id);
 
-            const remainingIds = Object.keys(roomMapStates[activeRoom].players);
-
-            if (remainingIds.length > 0) {
-                if (wasHost) {
-                    roomMapStates[activeRoom].players[remainingIds[0]].isHost = true;
-                }
-                sendLobbyUpdate(activeRoom);
-                io.to(activeRoom).emit('player-disconnected', socket.id);
-
-                if (roomMapStates[activeRoom].isMatchActive && remainingIds.length === 1) {
-                    roomMapStates[activeRoom].isMatchActive = false;
-                    const finalStandings = computeStandings(activeRoom);
-                    io.to(activeRoom).emit('race-terminated-early', finalStandings);
-                }
+            if (room.players.length === 0) {
+                delete activeRooms[joinedRoomKey];
             } else {
-                delete roomMapStates[activeRoom];
+                if (!room.players.some(p => p.isHost)) {
+                    room.players[0].isHost = true;
+                }
+                io.to(joinedRoomKey).emit('lobby-update', { players: room.players });
+                io.to(joinedRoomKey).emit('player-disconnected', socket.id);
             }
         }
     });
 });
 
-const PORT = process.env.PORT || 3000;
+// 👇 CHANGED: Bound the running port connection to the environment variables
 httpServer.listen(PORT, () => {
-    console.log("\n☠  THE GHOST OF GOLDSTEIN CORE SERVER RUNNING ☠");
-    console.log("---------------------------------------------------------------");
-    console.log("URL: http://localhost:" + PORT);
-    console.log("---------------------------------------------------------------\n");
+    console.log(`=========================================`);
+    console.log(`UNDERWORLD CORE ACTIVE ON PORT: ${PORT}`);
+    console.log(`=========================================`);
 });

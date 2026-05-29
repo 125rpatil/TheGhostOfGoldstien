@@ -5,7 +5,8 @@
   "main": "server.mjs",
   "type": "module",
   "scripts": {
-    "start": "node server.mjs"
+    "build": "npm install && tsc",
+    "start": "node server.js"
   },
   "keywords": [
     "multiplayer",
