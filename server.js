@@ -1,15 +1,20 @@
-const express = require('express');
-const { createServer } = require('http');
-const { Server } = require('socket.io');
-const path = require('path'); // Core module added to handle file directories
+import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const app = express();
 const httpServer = createServer(app);
 
-// 👇 RENDER REQUIREMENT: Dynamically hooks into the port assigned by Render's runtime environment
+// ES Modules do not have '__dirname' globally defined, so we reconstruct it here:
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Hook dynamically into Render's designated port infrastructure
 const PORT = process.env.PORT || 3000;
 
-// Permissive Cross-Origin Resource Sharing setup for WebSocket client handshakes
+// Permissive Cross-Origin Resource Sharing setup for incoming WebSocket pipelines
 const io = new Server(httpServer, {
     cors: {
         origin: "*",
@@ -20,7 +25,7 @@ const io = new Server(httpServer, {
 const activeRooms = {};
 const RETRO_COLORS = ['#ff0000', '#00ff00', '#00ffff', '#ffff00', '#ff00ff', '#ffffff'];
 
-// 👇 THE CRITICAL ADDITION: This interceptor answers incoming web browser traffic and serves the game file
+// Serves the HTML game file directly when navigating to your Render URL root ('/')
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'ghost_of_goldstein.html'));
 });
@@ -150,7 +155,7 @@ io.on('connection', (socket) => {
     });
 });
 
-// 👇 CHANGED: Bound the running port connection to the environment variables
+// Spin up the listener loop bound to the Render dynamic assignment port
 httpServer.listen(PORT, () => {
     console.log(`=========================================`);
     console.log(`UNDERWORLD CORE ACTIVE ON PORT: ${PORT}`);
