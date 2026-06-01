@@ -483,7 +483,7 @@
       return {x:-dy/len, y:dx/len};
     });
 
-    // 👇 CHANGED: Spaced out the ghosts evenly across the spline loops to prevent tight clustering
+    // Spaced out the ghosts evenly across the spline loops to prevent tight clustering
     const ghosts = [];
     const ghostCount = 10 + Math.floor(rng()*4);
     for (let i=0; i<ghostCount; i++) {
@@ -585,8 +585,8 @@
       localPlayer.offTrackTimer=0;
     }
 
-    // 👇 CHANGED: Normalized glitch cooldown set to 0.12 for a balanced arcade recovery speed
-    localPlayer.sanity = Math.max(localPlayer.sanity - 0.12 * dt, 0.0);
+    // 👇 SAVED CHANGE: Perfect 5-second lingering effect cooldown configuration applied here
+    localPlayer.sanity = Math.max(localPlayer.sanity - 0.07 * dt, 0.0);
 
     localPlayer.prevProgress=localPlayer.progress;
     localPlayer.progress=trackProgress(localPlayer.x,localPlayer.y,track);
@@ -821,7 +821,7 @@
       const dx=localPlayer.x-gx, dy=localPlayer.y-gy;
       const distSq = dx*dx+dy*dy;
 
-      // 👇 CHANGED: Tightened the hitbox bounds from 720 down to 400 square pixels to make physics accurate
+      // Tightened hitbox boundary limit (400 sq pixels)
       if(distSq < 400) {
         if (!localPlayer.finished && localPlayer.ghostedTimer <= 0) {
           localPlayer.sanity = Math.min(localPlayer.sanity + 0.34, 1.0);
